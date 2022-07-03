@@ -130,7 +130,7 @@ public class JDBCManager {
 		}
 	}
 	
-	private boolean clearTable(String tableName) {
+	public boolean clearTable(String tableName) {
 		try(Connection connection = DriverManager.getConnection(url, login, password)) {
 			
 			Statement stat = connection.createStatement();
