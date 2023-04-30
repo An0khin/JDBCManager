@@ -6,147 +6,117 @@ import java.util.List;
 
 public class DefaultJDBCManager implements JDBCManager {
 
-    private String login;
-    private String password;
-    private String url;
+    private final String login;
+    private final String password;
+    private final String url;
 
-    public DefaultJDBCManager(String login, String password, String url) {
-        super();
+    public DefaultJDBCManager(String url, String login, String password) {
+        this.url = url;
         this.login = login;
         this.password = password;
-        this.url = url;
     }
 
-	@Override
+    @Override
+    public List<List<String>> getAll(String tableName) {
+        List<List<String>> result = new ArrayList<>();
+        try(Connection connection = DriverManager.getConnection(url, login, password)) {
+            PreparedStatement preparedStatement = connection.prepareStatement(String.format("SELECT * FROM %s", tableName));
+
+            ResultSet resultSet = preparedStatement.executeQuery();
+
+            while(resultSet.next()) {
+                List<String> row = new ArrayList<>();
+                int columnsNumber = resultSet.getMetaData().getColumnCount();
+
+                for(int i = 1; i <= columnsNumber; i++) {
+                    row.add(resultSet.getString(i));
+                }
+
+                result.add(row);
+            }
+
+            resultSet.close();
+        } catch(SQLException exception) {
+            exception.printStackTrace();
+        }
+
+        return result;
+    }
+
+    @Override
     public boolean insertRowToTable(List<String> row, String tableName) {
         try(Connection connection = DriverManager.getConnection(url, login, password)) {
-            Statement stat = connection.createStatement();
+            int columnsNumber = row.size();
 
-            String request = "insert into " + tableName + " values(";
+            PreparedStatement preparedStatement =
+                    connection.prepareStatement(prepareInsertRequest(tableName, columnsNumber));
 
-            int size = row.size();
-
-            for(int i = 0; i < size; i++) {
-                request += "\'" + row.get(i) + "\'";
-                if(i != size - 1) {
-                    request += ", ";
-                }
+            for(int i = 1; i <= columnsNumber; i++) {
+                preparedStatement.setString(i, row.get(i - 1));
             }
 
-            request += ");";
+            boolean result = preparedStatement.execute();
 
-            int result = stat.executeUpdate(request);
+            return result;
 
-            if(result > 0) {
-                return true;
-            } else {
-                return false;
-            }
-
-        } catch(Exception ex) {
+        } catch(SQLException ex) {
             ex.printStackTrace();
             return false;
         }
     }
 
-	@Override
+    @Override
     public boolean deleteRowFromTable(List<String> row, String tableName) {
         try(Connection connection = DriverManager.getConnection(url, login, password)) {
-            Statement stat = connection.createStatement();
+            int columnsNumber = row.size();
 
-            List<String> columnNames = getColumnsNamesFromTable(tableName);
+            PreparedStatement preparedStatement = connection.prepareStatement(prepareDeleteRequest(tableName));
 
-            String request = "DELETE FROM " + tableName + " WHERE ";
-
-            int size = columnNames.size();
-
-            for(int i = 0; i < size; i++) {
-                request += columnNames.get(i) + " = \'" + row.get(i) + "\' ";
-                if(i != size - 1) {
-                    request += "AND ";
-                }
+            for(int i = 1; i <= columnsNumber; i++) {
+                preparedStatement.setString(i, row.get(i - 1));
             }
 
-            request += ";";
+            boolean result = preparedStatement.execute();
 
-            int result = stat.executeUpdate(request);
+            return result;
 
-            if(result > 0) {
-                return true;
-            } else {
-                return false;
-            }
-
-        } catch(Exception ex) {
+        } catch(SQLException ex) {
             ex.printStackTrace();
             return false;
         }
     }
 
-	@Override
+    @Override
     public boolean editRowFromTable(List<String> oldRow, List<String> newRow, String tableName) {
         try(Connection connection = DriverManager.getConnection(url, login, password)) {
+            int columnsNumber = oldRow.size();
 
-            Statement stat = connection.createStatement();
+            PreparedStatement preparedStatement = connection.prepareStatement(prepareUpdateRequest(tableName));
 
-            List<String> columnNames = getColumnsNamesFromTable(tableName);
+            for(int i = 1; i <= columnsNumber; i++) {
+                preparedStatement.setString(i, newRow.get(i - 1));
 
-            String request = "UPDATE " + tableName + " SET ";
-
-            int size = columnNames.size();
-
-            for(int i = 0; i < size; i++) {
-                request += columnNames.get(i) + " = \'" + newRow.get(i) + "\'";
-
-                if(i != size - 1) {
-                    request += ", ";
-                }
+                preparedStatement.setString(i + columnsNumber, oldRow.get(i - 1));
             }
 
-            request += " WHERE ";
+            boolean result = preparedStatement.execute();
 
-            for(int i = 0; i < size; i++) {
-                request += columnNames.get(i) + " = \'" + oldRow.get(i) + "\'";
-
-                if(i != size - 1) {
-                    request += "AND ";
-                }
-            }
-
-            request += ";";
-
-            int result = stat.executeUpdate(request);
-
-            if(result > 0) {
-                return true;
-            } else {
-                return false;
-            }
-
-        } catch(Exception ex) {
+            return result;
+        } catch(SQLException ex) {
             ex.printStackTrace();
             return false;
         }
     }
 
-	@Override
+    @Override
     public boolean clearTable(String tableName) {
         try(Connection connection = DriverManager.getConnection(url, login, password)) {
+            PreparedStatement preparedStatement = connection.prepareStatement(String.format("DELETE FROM %s;", tableName));
 
-            Statement stat = connection.createStatement();
+            boolean result = preparedStatement.execute();
 
-            String request = "DELETE FROM " + tableName + ";";
-
-            int result = stat.executeUpdate(request);
-
-            if(result > 0) {
-                return true;
-            } else {
-                return false;
-            }
-
-
-        } catch(Exception ex) {
+            return result;
+        } catch(SQLException ex) {
             ex.printStackTrace();
             return false;
         }
@@ -156,21 +126,80 @@ public class DefaultJDBCManager implements JDBCManager {
         List<String> columnNames = new ArrayList<>();
 
         try(Connection connection = DriverManager.getConnection(url, login, password)) {
-            Statement stat = connection.createStatement();
+            PreparedStatement preparedStatement = connection.prepareStatement(String.format("SELECT * FROM %s;", tableName));
+            ResultSet resultSet = preparedStatement.executeQuery();
+            ResultSetMetaData resultSetMetaData = resultSet.getMetaData();
+            int columnsNumber = resultSetMetaData.getColumnCount();
 
-            String requestForNamesColumns = "SELECT * FROM " + tableName + ";"; //getting columns' names
-            ResultSet rs = stat.executeQuery(requestForNamesColumns);
-            ResultSetMetaData rsMetaData = rs.getMetaData();
-            int countColumns = rsMetaData.getColumnCount();
-
-            for(int i = 1; i <= countColumns; i++) { //columns' names to List
-                columnNames.add(rsMetaData.getColumnName(i));
+            for(int i = 1; i <= columnsNumber; i++) { //columns' names to List
+                columnNames.add(resultSetMetaData.getColumnName(i));
             }
-
-        } catch(Exception ex) {
+        } catch(SQLException ex) {
             ex.printStackTrace();
         }
 
         return columnNames;
+    }
+
+
+    private String prepareInsertRequest(String tableName, int columnsNumber) {
+        StringBuilder requestBuilder = new StringBuilder(String.format("INSERT INTO %s VALUES(", tableName));
+
+        requestBuilder.append("?,".repeat(columnsNumber));
+
+        requestBuilder.deleteCharAt(requestBuilder.length() - 1);
+        requestBuilder.append(");");
+
+        return requestBuilder.toString();
+    }
+
+    private String prepareDeleteRequest(String tableName) {
+        List<String> columnsNames = getColumnsNamesFromTable(tableName);
+
+        String requestBuilder = String.format("DELETE FROM %s ", tableName) + buildWhereSequence(columnsNames) +
+                ";";
+
+        return requestBuilder;
+    }
+
+    private String prepareUpdateRequest(String tableName) {
+        List<String> columnsNames = getColumnsNamesFromTable(tableName);
+
+        String requestBuilder = String.format("UPDATE %s ", tableName) + buildSetSequence(columnsNames) +
+                " " +
+                buildWhereSequence(columnsNames) +
+                ";";
+
+        return requestBuilder;
+    }
+
+    private String buildWhereSequence(List<String> fields) {
+        StringBuilder whereSequenceBuilder = new StringBuilder("WHERE ");
+
+        int size = fields.size();
+
+        for(int i = 0; i < size; i++) {
+            whereSequenceBuilder.append(String.format("%s = ? ", fields.get(i)));
+            if(i != size - 1) {
+                whereSequenceBuilder.append("AND ");
+            }
+        }
+
+        return whereSequenceBuilder.toString();
+    }
+
+    private String buildSetSequence(List<String> fields) {
+        StringBuilder setSequenceBuilder = new StringBuilder("SET ");
+
+        int size = fields.size();
+
+        for(int i = 0; i < size; i++) {
+            setSequenceBuilder.append(String.format("%s = ?", fields.get(i)));
+            if(i != size - 1) {
+                setSequenceBuilder.append(", ");
+            }
+        }
+
+        return setSequenceBuilder.toString();
     }
 }
